@@ -1,0 +1,29 @@
+{
+  "name": "asad-mdx",
+  "version": "1.0.0",
+  "description": "ASAD MD — Multi-session WhatsApp bot powered by ARSLAN TECH'S",
+  "type": "module",
+  "main": "index.js",
+  "author": "Arslan Tech's",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node --max-old-space-size=1536 --expose-gc index.js",
+    "dev": "node --max-old-space-size=1536 --expose-gc --watch index.js",
+    "api": "node --max-old-space-size=512 api/server.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "fs-extra": "^11.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^9.4.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

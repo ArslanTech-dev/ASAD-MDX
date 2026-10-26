@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# WhatsApp sessions — NEVER PUSH
+database/sessions/*
+!database/sessions/.gitkeep
+database/antidelete/*
+!database/antidelete/.gitkeep
+database/configs/*
+!database/configs/.gitkeep
+database/users.json
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Backups
+*.zip
+*.tar.gz
