@@ -1,7 +1,10 @@
 /**
- * ASAD MD — API Server (Dynamic Port)
- * Start: node api/server.js
- * Auto-integrates with bot if BOT_AUTOSTART=true
+ * ASAD MD — API Server
+ * Supports:
+ *   • Local dev  → dynamic port (3000, 3001, ...)
+ *   • Pxxl/PaaS  → process.env.PORT (0.0.0.0 bind)
+ *
+ * Start: npm start (auto from index.js) or node api/server.js
  */
 
 import express from 'express';
@@ -21,29 +24,51 @@ import { generalLimiter } from './middleware/rateLimit.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT_FILE = path.join(__dirname, '.port');
 
+/* ─── Express app ─────────────────────────────── */
 export function createApp() {
   const app = express();
+
   app.use(cors({ origin: '*' }));
   app.use(express.json({ limit: '1mb' }));
   app.use(generalLimiter);
 
+  // Root — bot info
   app.get('/', (req, res) => {
     res.json({
       name: CONFIG.BOT_NAME,
       version: CONFIG.VERSION,
       powered: "ARSLAN TECH'S",
       status: 'online',
+      port: process.env.PORT || 'local',
+      uptime: Math.floor(process.uptime()),
       time: new Date().toISOString(),
     });
   });
 
-  app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
+  // Health check (Pxxl/Render/Railway probes this)
+  app.get('/health', (req, res) => {
+    res.json({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      memory: {
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heap: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      },
+    });
+  });
 
+  // API routes
   app.use('/api/pair', pairRoute);
   app.use('/api/session', sessionRoute);
   app.use('/api/status', statusRoute);
   app.use('/api/admin', adminRoute);
 
+  // 404
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Not found', path: req.path });
+  });
+
+  // Error handler
   app.use((err, req, res, next) => {
     logger.error('API error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -52,22 +77,53 @@ export function createApp() {
   return app;
 }
 
-/**
- * 🔥 Dynamic port binding
- * Start from PORT (default 3000), try next ports on EADDRINUSE
- */
-export async function startServer(startPort = CONFIG.API.PORT, maxAttempts = 10) {
+/* ─── Listen helper ───────────────────────────── */
+function tryListen(app, port) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, '0.0.0.0', () => resolve(server));
+    server.on('error', reject);
+    server.on('listening', () => {
+      const addr = server.address();
+      logger.success(`🌐 Listening on 0.0.0.0:${addr.port}`);
+    });
+  });
+}
+
+/* ─── Start server ────────────────────────────── */
+export async function startServer() {
   const app = createApp();
 
+  // 🔵 Pxxl/PaaS: PORT env assigned by platform — use it strictly
+  if (process.env.PORT) {
+    const port = parseInt(process.env.PORT, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid PORT env: ${process.env.PORT}`);
+    }
+
+    const server = await tryListen(app, port);
+    await fs.writeJson(PORT_FILE, {
+      port,
+      env: 'paas',
+      startedAt: new Date().toISOString(),
+    });
+    logger.success(`🌐 API live on PORT ${port} (Pxxl mode)`);
+    return { server, port };
+  }
+
+  // 🟢 Local dev: try 3000 → 3009
+  const basePort = CONFIG.API.PORT || 3000;
+  const maxAttempts = 10;
+
   for (let i = 0; i < maxAttempts; i++) {
-    const port = startPort + i;
+    const port = basePort + i;
     try {
       const server = await tryListen(app, port);
-      await fs.writeJson(PORT_FILE, { port, startedAt: new Date().toISOString() });
-
-      logger.success(`🌐 API running: http://localhost:${port}`);
-      logger.info(`📁 Port saved to: api/.port`);
-
+      await fs.writeJson(PORT_FILE, {
+        port,
+        env: 'local',
+        startedAt: new Date().toISOString(),
+      });
+      logger.success(`🌐 API live on http://localhost:${port} (local mode)`);
       return { server, port };
     } catch (err) {
       if (err.code === 'EADDRINUSE') {
@@ -78,28 +134,22 @@ export async function startServer(startPort = CONFIG.API.PORT, maxAttempts = 10)
     }
   }
 
-  throw new Error(`All ports ${startPort}-${startPort + maxAttempts - 1} are busy`);
+  throw new Error(`All ports ${basePort}-${basePort + maxAttempts - 1} busy`);
 }
 
-function tryListen(app, port) {
-  return new Promise((resolve, reject) => {
-    const server = app.listen(port, '0.0.0.0', () => resolve(server));
-    server.on('error', reject);
-  });
-}
-
-/* ─── CLI entry ─── */
+/* ─── CLI entry (standalone) ──────────────────── */
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
 if (isMain) {
   startServer()
-    .then(({ server, port }) => {
-      const shutdown = () => {
-        logger.info('🛑 Shutting down API...');
+    .then(({ server }) => {
+      const shutdown = (sig) => {
+        logger.info(`🛑 ${sig} — shutting down...`);
         server.close(() => process.exit(0));
+        setTimeout(() => process.exit(1), 5000);
       };
-      process.on('SIGINT', shutdown);
-      process.on('SIGTERM', shutdown);
+      process.on('SIGINT', () => shutdown('SIGINT'));
+      process.on('SIGTERM', () => shutdown('SIGTERM'));
     })
     .catch((err) => {
       logger.error('Fatal API error:', err);
