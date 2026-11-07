@@ -3,7 +3,8 @@
  * Supports:
  *   • Local dev  → dynamic port (3000, 3001, ...)
  *   • Pxxl/PaaS  → process.env.PORT (0.0.0.0 bind)
- *
+ *   • Static website serving from /public
+ * 
  * Start: npm start (auto from index.js) or node api/server.js
  */
 
@@ -30,10 +31,14 @@ export function createApp() {
 
   app.use(cors({ origin: '*' }));
   app.use(express.json({ limit: '1mb' }));
+  
+  // 👇 WEBSITE SERVE KARNE KE LIYE (public/index.html) 👇
+  app.use(express.static(path.join(__dirname, '..', 'public')));
+
   app.use(generalLimiter);
 
-  // Root — bot info
-  app.get('/', (req, res) => {
+  // API Info (Moved to '/api/info' taake website block na ho)
+  app.get('/api/info', (req, res) => {
     res.json({
       name: CONFIG.BOT_NAME,
       version: CONFIG.VERSION,
@@ -63,9 +68,13 @@ export function createApp() {
   app.use('/api/status', statusRoute);
   app.use('/api/admin', adminRoute);
 
-  // 404
+  // 404 Handler
   app.use((req, res) => {
-    res.status(404).json({ error: 'Not found', path: req.path });
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API route not found', path: req.path });
+    }
+    // Agar koi galat URL daale to index.html (website) show karo
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
   });
 
   // Error handler
@@ -106,7 +115,7 @@ export async function startServer() {
       env: 'paas',
       startedAt: new Date().toISOString(),
     });
-    logger.success(`🌐 API live on PORT ${port} (Pxxl mode)`);
+    logger.success(`🌐 API & WEBSITE live on PORT ${port} (Pxxl mode)`);
     return { server, port };
   }
 
@@ -123,7 +132,7 @@ export async function startServer() {
         env: 'local',
         startedAt: new Date().toISOString(),
       });
-      logger.success(`🌐 API live on http://localhost:${port} (local mode)`);
+      logger.success(`🌐 API & WEBSITE live on http://localhost:${port} (local mode)`);
       return { server, port };
     } catch (err) {
       if (err.code === 'EADDRINUSE') {
