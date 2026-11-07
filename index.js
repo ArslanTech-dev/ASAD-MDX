@@ -1,7 +1,8 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  ASAD MD — Ultra Strong Pairing Engine (v2.0 — Plugins)
+ *  ASAD MD — Full Bot Engine (v2.1 — Pxxl Ready)
  *  Powered by ARSLAN TECH'S
+ *  Single command: npm start (bot + API + plugins + sessions)
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -36,6 +37,8 @@ const SESSIONS_DIR = path.join(__dirname, 'database', 'sessions');
 const LOGO_PATH = path.join(__dirname, 'assets', 'logo.png');
 const baileysLogger = pino({ level: 'silent' });
 
+const IS_PXXL = !!process.env.PORT || process.env.NODE_ENV === 'production';
+
 /* ─── State ────────────────────────────────────── */
 export const activeSessions = new Map();
 const pendingPairings = new Map();
@@ -51,7 +54,6 @@ function displayBanner() {
     bold: '\x1b[1m', dim: '\x1b[2m', reset: '\x1b[0m',
   };
   const V = '║', H = '═';
-  const isTermux = process.env.PREFIX?.includes('com.termux') || os.hostname().includes('localhost');
 
   const art = [
     ' █████╗ ███████╗ █████╗ ██████╗     ███╗   ███╗██████╗ ',
@@ -73,8 +75,7 @@ function displayBanner() {
   console.log(empty);
   art.forEach((row, i) => {
     const color = i < 3 ? c.purple : c.magenta;
-    const padded = row.padEnd(70, ' ');
-    console.log(`${line} ${color}${c.bold}${padded}${c.reset} ${line}`);
+    console.log(`${line} ${color}${c.bold}${row.padEnd(70, ' ')}${c.reset} ${line}`);
   });
   console.log(empty);
   console.log(`${line} ${c.yellow}${c.bold}              ⚡ Powered by ARSLAN TECH'S ⚡${c.reset}               ${line}`);
@@ -85,7 +86,7 @@ function displayBanner() {
   console.log(`${line}   ${c.dim}├─${c.reset} Engine     ${c.cyan}Baileys v7 (rc14)${c.reset}${' '.repeat(41)}${line}`);
   console.log(`${line}   ${c.dim}├─${c.reset} Node.js    ${c.cyan}${process.version}${c.reset}${' '.repeat(Math.max(0, 42 - process.version.length))}${line}`);
   console.log(`${line}   ${c.dim}├─${c.reset} Platform   ${c.cyan}${os.platform()} ${os.arch()}${c.reset}${' '.repeat(Math.max(0, 43 - (os.platform() + os.arch()).length))}${line}`);
-  console.log(`${line}   ${c.dim}├─${c.reset} Termux     ${isTermux ? c.green + 'Yes ✓' : c.yellow + 'No ✗'}${c.reset}${' '.repeat(50)}${line}`);
+  console.log(`${line}   ${c.dim}├─${c.reset} Mode       ${c.cyan}${IS_PXXL ? 'Cloud (Pxxl)' : 'Local/Termux'}${c.reset}${' '.repeat(Math.max(0, 43 - (IS_PXXL ? 12 : 13)))}${line}`);
   console.log(`${line}   ${c.dim}├─${c.reset} Memory     ${c.cyan}${(os.totalmem() / 1024 / 1024 / 1024).toFixed(1)} GB${c.reset}${' '.repeat(52)}${line}`);
   console.log(`${line}   ${c.dim}└─${c.reset} Max Users  ${c.cyan}${LIMITS.MAX_SESSIONS} sessions${c.reset}${' '.repeat(45)}${line}`);
   console.log(mid);
@@ -98,9 +99,7 @@ function displayBanner() {
   console.log('');
 }
 
-/* ═══════════════════════════════════════════════════════════════
- * 🔑 PAIRING CODE FORMATTER — ALPHANUMERIC (letters preserved)
- * ═══════════════════════════════════════════════════════════════ */
+/* ─── Pairing formatter ───────────────────────── */
 export function formatPairingCode(raw) {
   const clean = String(raw || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (clean.length === 8) return `${clean.slice(0, 4)}-${clean.slice(4)}`;
@@ -132,24 +131,17 @@ Aapka bot successfully pair ho gaya hai.
   • Owner     : Aap khud 👑
   • Powered by: ARSLAN TECH'S ⚡
 
-*💡 Try These Commands:*
-  ${CONFIG.PREFIX[0]}ping     → Check bot alive
-  ${CONFIG.PREFIX[0]}menu     → Full command list
-  ${CONFIG.PREFIX[0]}alive    → Bot status
+*💡 Commands:*
+  ${CONFIG.PREFIX[0]}ping  ·  ${CONFIG.PREFIX[0]}menu  ·  ${CONFIG.PREFIX[0]}alive
 
-*⚙️ Owner Commands:*
+*⚙️ Owner Only:*
   ${CONFIG.PREFIX[0]}antidelete on/off
   ${CONFIG.PREFIX[0]}anticall on/off
   ${CONFIG.PREFIX[0]}welcome on/off
   ${CONFIG.PREFIX[0]}goodbye on/off
 
-*🛡️ Auto Features (default ON):*
-  ▸ Antidelete — deleted messages alert
-  ▸ Anticall — auto-reject calls
-  ▸ Group welcome & goodbye
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💖 *Made with love by Arslan Tech's* 💖
+💖 *Arslan Tech's* 💖
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `.trim();
 
@@ -188,7 +180,7 @@ async function deleteSession(number) {
   }
 }
 
-/* ─── Start bot for user ──────────────────────── */
+/* ─── Start bot ───────────────────────────────── */
 export async function startBotForUser(number, opts = {}) {
   const { isNew = false, autoReconnect = false } = opts;
 
@@ -231,16 +223,14 @@ export async function startBotForUser(number, opts = {}) {
   let pairingCodeRequested = false;
   let hasOpenedOnce = false;
 
-  /* ─── pair-device event (rc14) ─── */
   sock.ev.on('pair-device', () => {
     logger.info(`[Pairing] ✅ Server ready for ${number}`);
   });
 
-  /* ─── Connection updates ─── */
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    /* ─── PAIRING — single attempt ─── */
+    /* Pairing */
     if (qr && pendingPairings.has(number) && !sock.authState.creds.registered && !pairingCodeRequested) {
       pairingCodeRequested = true;
       const pending = pendingPairings.get(number);
@@ -252,13 +242,12 @@ export async function startBotForUser(number, opts = {}) {
         const raw = await sock.requestPairingCode(number);
 
         logger.info(
-          `[Pairing] 🔍 RAW from server: "${raw}" ` +
-          `(type: ${typeof raw}, len: ${String(raw ?? '').length})`
+          `[Pairing] 🔍 RAW: "${raw}" (type: ${typeof raw}, len: ${String(raw ?? '').length})`
         );
 
         const cleaned = String(raw || '').replace(/[^A-Za-z0-9]/g, '');
         if (!cleaned || cleaned.length < 6) {
-          throw new Error(`Code too short (raw: "${raw}", cleaned: "${cleaned}")`);
+          throw new Error(`Code too short (raw: "${raw}")`);
         }
 
         const code = formatPairingCode(raw);
@@ -278,7 +267,7 @@ export async function startBotForUser(number, opts = {}) {
       }
     }
 
-    /* ─── Connection opened ─── */
+    /* Open */
     if (connection === 'open') {
       hasOpenedOnce = true;
       pairingCodeRequested = false;
@@ -293,7 +282,7 @@ export async function startBotForUser(number, opts = {}) {
       }
     }
 
-    /* ─── Connection closed ─── */
+    /* Close */
     if (connection === 'close') {
       const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const reasonName = Object.keys(DisconnectReason).find(
@@ -305,7 +294,6 @@ export async function startBotForUser(number, opts = {}) {
       activeSessions.delete(number);
       sessionStatus.delete(number);
 
-      // 405
       if (statusCode === 405) {
         logger.error(`🚫 [405] Not Allowed — aborting ${number}`);
         await deleteSession(number);
@@ -314,7 +302,6 @@ export async function startBotForUser(number, opts = {}) {
         return;
       }
 
-      // 401
       if (statusCode === DisconnectReason.loggedOut) {
         logger.warn(`🗑️  [401] Logged out: ${number}`);
         await deleteSession(number);
@@ -323,7 +310,6 @@ export async function startBotForUser(number, opts = {}) {
         return;
       }
 
-      // 515 / restartRequired
       if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
         logger.info(`🔄 [515] Restart — reconnecting ${number}...`);
         await sleep(2000);
@@ -333,7 +319,6 @@ export async function startBotForUser(number, opts = {}) {
         return;
       }
 
-      // First-time failed
       if (!hasOpenedOnce) {
         logger.error(`❌ [${statusCode}] Initial connect failed ${number}`);
         await deleteSession(number);
@@ -342,7 +327,6 @@ export async function startBotForUser(number, opts = {}) {
         return;
       }
 
-      // Backoff reconnect
       if (autoReconnect) {
         const retries = (retryCount.get(number) || 0) + 1;
         retryCount.set(number, retries);
@@ -362,54 +346,37 @@ export async function startBotForUser(number, opts = {}) {
     }
   });
 
-  /* ─── Messages (plugin dispatcher) ─── */
+  /* Messages */
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
-      try {
-        await handleMessage(sock, msg, number);
-      } catch (err) {
-        logger.debug(`msg handler: ${err.message}`);
-      }
+      try { await handleMessage(sock, msg, number); }
+      catch (err) { logger.debug(`msg: ${err.message}`); }
     }
   });
 
-  /* ─── Calls (anticall) ─── */
+  /* Calls */
   sock.ev.on('call', async (calls) => {
-    try {
-      await handleCall(sock, number, calls);
-    } catch (err) {
-      logger.debug(`call handler: ${err.message}`);
-    }
+    try { await handleCall(sock, number, calls); }
+    catch (err) { logger.debug(`call: ${err.message}`); }
   });
 
-  /* ─── Group participants (welcome/goodbye) ─── */
+  /* Groups */
   sock.ev.on('group-participants.update', async (update) => {
-    try {
-      await handleGroupParticipants(sock, number, update);
-    } catch (err) {
-      logger.debug(`group handler: ${err.message}`);
-    }
+    try { await handleGroupParticipants(sock, number, update); }
+    catch (err) { logger.debug(`group: ${err.message}`); }
   });
 
   return sock;
 }
 
-/* ─── Public: request pairing ─────────────────── */
+/* ─── Request pairing ─────────────────────────── */
 export async function requestPairingCode(number) {
   const clean = String(number).replace(/\D/g, '');
-  if (!/^\d{10,15}$/.test(clean)) {
-    throw new Error('Invalid number (10-15 digits)');
-  }
-  if (activeSessions.has(clean)) {
-    throw new Error('Already paired');
-  }
-  if (activeSessions.size >= LIMITS.MAX_SESSIONS) {
-    throw new Error(`Limit (${LIMITS.MAX_SESSIONS}) reached`);
-  }
-  if (pendingPairings.has(clean)) {
-    throw new Error('Pairing in progress');
-  }
+  if (!/^\d{10,15}$/.test(clean)) throw new Error('Invalid number (10-15 digits)');
+  if (activeSessions.has(clean)) throw new Error('Already paired');
+  if (activeSessions.size >= LIMITS.MAX_SESSIONS) throw new Error(`Limit (${LIMITS.MAX_SESSIONS}) reached`);
+  if (pendingPairings.has(clean)) throw new Error('Pairing in progress');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -431,7 +398,7 @@ export async function requestPairingCode(number) {
   });
 }
 
-/* ─── Public: unpair ──────────────────────────── */
+/* ─── Unpair ──────────────────────────────────── */
 export async function unpairUser(number) {
   const clean = String(number).replace(/\D/g, '');
   const sock = activeSessions.get(clean);
@@ -452,7 +419,7 @@ export async function unpairUser(number) {
   }
 }
 
-/* ─── Public: list ────────────────────────────── */
+/* ─── Session list ────────────────────────────── */
 export function getSessionList() {
   const out = [];
   for (const [number, sock] of activeSessions.entries()) {
@@ -509,12 +476,31 @@ export async function init() {
   logger.success('🧹 Memory guard active');
   await sleep(200);
 
-  // 🔌 Load plugins
-  await loadPlugins();
-  startCleanup();
-  logger.success('🔌 Plugin system ready');
+  // Plugins
+  try {
+    await loadPlugins();
+    startCleanup();
+    logger.success('🔌 Plugin system ready');
+  } catch (e) {
+    logger.warn(`Plugin system failed: ${e.message}`);
+  }
   await sleep(200);
 
+  // API server (Pxxl or local)
+  try {
+    const { startServer } = await import('./api/server.js');
+    const { port } = await startServer();
+    logger.success(`🌐 API on port ${port}`);
+  } catch (e) {
+    logger.warn(`⚠️  API failed: ${e.message}`);
+    if (IS_PXXL) {
+      logger.error('❌ Pxxl mode requires API — exiting');
+      process.exit(1);
+    }
+  }
+  await sleep(200);
+
+  // Auto-load
   logger.info('🔄 Scanning saved sessions...');
   const loaded = await autoLoadSessions();
   if (loaded > 0) {
@@ -523,13 +509,17 @@ export async function init() {
     logger.info('⏳ No saved sessions — waiting for pairing.');
   }
 
-  logger.info('💡 Bot ready. Use requestPairingCode(number) to pair.\n');
+  if (IS_PXXL) {
+    logger.success('🌍 Pxxl deploy ready — use API to pair');
+  } else {
+    logger.info('💡 Bot ready. Use requestPairingCode(number) to pair.\n');
+  }
 }
 
 /* ─── CLI entry ───────────────────────────────── */
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
-if (isMainModule) {
+if (isMain) {
   process.on('uncaughtException', (err) => logger.error('💥 Uncaught:', err));
   process.on('unhandledRejection', (err) => logger.error('💥 Unhandled:', err));
 
